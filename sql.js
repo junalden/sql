@@ -38,32 +38,46 @@ const getConnection = (callback) => {
 // API route to create a new user
 app.post("/api/create-account", (req, res) => {
   const { email, password } = req.body;
-  const query = "INSERT INTO users (email, password) VALUES (?, ?)";
-  db.query(query, [email, password], (err, result) => {
+  getConnection((err, connection) => {
     if (err) {
-      console.error("Error inserting user:", err.message); // Log error message
-      res.status(500).json({ error: "Database error", details: err.message });
+      res.status(500).json({ error: "Database error" });
       return;
     }
-    res.status(201).json({ message: "Account created successfully" });
+    const query = "INSERT INTO users (email, password) VALUES (?, ?)";
+    connection.query(query, [email, password], (err, result) => {
+      connection.release(); // Release connection back to the pool
+      if (err) {
+        console.error("Error inserting user:", err.message);
+        res.status(500).json({ error: "Database error", details: err.message });
+        return;
+      }
+      res.status(201).json({ message: "Account created successfully" });
+    });
   });
 });
 
 // API route to authenticate a user
 app.post("/api/login", (req, res) => {
   const { email, password } = req.body;
-  const query = "SELECT * FROM users WHERE email = ? AND password = ?";
-  db.query(query, [email, password], (err, results) => {
+  getConnection((err, connection) => {
     if (err) {
-      console.error("Error querying user:", err.message); // Log error message
-      res.status(500).json({ error: "Database error", details: err.message });
+      res.status(500).json({ error: "Database error" });
       return;
     }
-    if (results.length > 0) {
-      res.status(200).json({ message: "Login successful" });
-    } else {
-      res.status(401).json({ error: "Invalid credentials" });
-    }
+    const query = "SELECT * FROM users WHERE email = ? AND password = ?";
+    connection.query(query, [email, password], (err, results) => {
+      connection.release(); // Release connection back to the pool
+      if (err) {
+        console.error("Error querying user:", err.message);
+        res.status(500).json({ error: "Database error", details: err.message });
+        return;
+      }
+      if (results.length > 0) {
+        res.status(200).json({ message: "Login successful" });
+      } else {
+        res.status(401).json({ error: "Invalid credentials" });
+      }
+    });
   });
 });
 
