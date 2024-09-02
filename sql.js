@@ -9,8 +9,9 @@ app.use(express.json());
 // MySQL connection
 const db = mysql.createConnection({
   host: "gator4128.hostgator.com",
-  user: "technoti_PDF_user",
-  password: "Jejemon18@",
+  user: "technoti_PDF_USER",
+  // CAPS
+  password: "}-8_ft}6S[6%",
   database: "technoti_PDF",
 });
 
