@@ -8,7 +8,7 @@ app.use(express.json());
 
 // MySQL connection
 const db = mysql.createConnection({
-  host: "https://gator4128.hostgator.com:2083",
+  host: "gator4128.hostgator.com",
   user: "tchnoti_PDF_user",
   password: "Jejemon18@",
   database: "technoti_PDF",
