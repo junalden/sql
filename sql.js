@@ -7,20 +7,33 @@ const port = process.env.PORT || 5000;
 // Middleware to parse JSON
 app.use(express.json());
 
-const db = mysql.createConnection({
+// const db = mysql.createConnection({
+const pool = mysql.createPool({
+  connectionLimit: 10,
   host: process.env.DB_HOST,
   user: process.env.DB_USER,
   password: process.env.DB_PASSWORD,
   database: process.env.DB_NAME,
 });
 
-db.connect((err) => {
-  if (err) {
-    console.error("Error connecting to MySQL:", err);
-    return;
-  }
-  console.log("Connected to MySQL");
-});
+// db.connect((err) => {
+//   if (err) {
+//     console.error("Error connecting to MySQL:", err);
+//     return;
+//   }
+//   console.log("Connected to MySQL");
+// });
+// Function to get a connection from the pool
+const getConnection = (callback) => {
+  pool.getConnection((err, connection) => {
+    if (err) {
+      console.error("Error getting connection from pool:", err);
+      callback(err);
+      return;
+    }
+    callback(null, connection);
+  });
+};
 
 // API route to create a new user
 app.post("/api/create-account", (req, res) => {
