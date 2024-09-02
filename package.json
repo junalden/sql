@@ -1,6 +1,12 @@
 {
+  "name": "sql-connector",
+  "version": "1.0.0",
+  "main": "sql.js",
+  "scripts": {
+    "start": "node sql.js"
+  },
   "dependencies": {
-    "express": "^4.19.2",
-    "mysql": "^2.18.1"
+    "express": "^4.x.x",
+    "mysql": "^2.x.x"
   }
 }
