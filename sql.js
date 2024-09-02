@@ -9,9 +9,9 @@ app.use(express.json());
 // MySQL connection
 const db = mysql.createConnection({
   host: "https://gator4128.hostgator.com:2083",
-  user: "PDF_user",
+  user: "tchnoti_PDF_user",
   password: "Jejemon18@",
-  database: "PDF",
+  database: "technoti_PDF",
 });
 
 db.connect((err) => {
@@ -28,8 +28,8 @@ app.post("/api/create-account", (req, res) => {
   const query = "INSERT INTO users (email, password) VALUES (?, ?)";
   db.query(query, [email, password], (err, result) => {
     if (err) {
-      console.error("Error inserting user:", err);
-      res.status(500).json({ error: "Database error" });
+      console.error("Error inserting user:", err.message); // Log error message
+      res.status(500).json({ error: "Database error", details: err.message });
       return;
     }
     res.status(201).json({ message: "Account created successfully" });
@@ -42,8 +42,8 @@ app.post("/api/login", (req, res) => {
   const query = "SELECT * FROM users WHERE email = ? AND password = ?";
   db.query(query, [email, password], (err, results) => {
     if (err) {
-      console.error("Error querying user:", err);
-      res.status(500).json({ error: "Database error" });
+      console.error("Error querying user:", err.message); // Log error message
+      res.status(500).json({ error: "Database error", details: err.message });
       return;
     }
     if (results.length > 0) {
