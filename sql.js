@@ -1,3 +1,4 @@
+require("dotenv").config();
 const express = require("express");
 const mysql = require("mysql");
 const app = express();
@@ -6,13 +7,11 @@ const port = process.env.PORT || 5000;
 // Middleware to parse JSON
 app.use(express.json());
 
-// MySQL connection
 const db = mysql.createConnection({
-  host: "gator4128.hostgator.com",
-  user: "technoti_PDF_USER",
-  // CAPS
-  password: "}-8_ft}6S[6%",
-  database: "technoti_PDF",
+  host: process.env.DB_HOST,
+  user: process.env.DB_USER,
+  password: process.env.DB_PASSWORD,
+  database: process.env.DB_NAME,
 });
 
 db.connect((err) => {
