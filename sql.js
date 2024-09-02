@@ -1,8 +1,12 @@
 require("dotenv").config();
 const express = require("express");
 const mysql = require("mysql");
+const cors = require("cors"); // Import cors
 const app = express();
 const port = process.env.PORT || 5000;
+
+// Use CORS middleware
+app.use(cors()); // This will allow all origins by default
 
 // Middleware to parse JSON
 app.use(express.json());
