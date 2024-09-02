@@ -1,4 +1,3 @@
-const express = require("express");
 const mysql = require("mysql");
 const app = express();
 const port = process.env.PORT || 5000;
@@ -8,25 +7,35 @@ app.use(express.json());
 
 // MySQL connection
 const db = mysql.createConnection({
-  host: "192.185.4.140",
-  user: "PDF_user",
-  password: "Jejemon18@",
-  database: "PDF",
+  host: "your-hostgator-mysql-host",
+  user: "your-mysql-username",
+  password: "your-mysql-password",
+  database: "your-database-name",
 });
 
 db.connect((err) => {
   if (err) {
     console.error("Error connecting to MySQL:", err);
-    return;
+    process.exit(1); // Exit the application if connection fails
   }
   console.log("Connected to MySQL");
 });
+
+// Ensure queries are executed only if the connection is established
+const executeQuery = (query, params, callback) => {
+  if (db.state === "authenticated") {
+    db.query(query, params, callback);
+  } else {
+    console.error("MySQL connection is not authenticated");
+    callback(new Error("MySQL connection error"));
+  }
+};
 
 // API route to create a new user
 app.post("/api/create-account", (req, res) => {
   const { email, password } = req.body;
   const query = "INSERT INTO users (email, password) VALUES (?, ?)";
-  db.query(query, [email, password], (err, result) => {
+  executeQuery(query, [email, password], (err, result) => {
     if (err) {
       console.error("Error inserting user:", err);
       res.status(500).json({ error: "Database error" });
@@ -40,7 +49,7 @@ app.post("/api/create-account", (req, res) => {
 app.post("/api/login", (req, res) => {
   const { email, password } = req.body;
   const query = "SELECT * FROM users WHERE email = ? AND password = ?";
-  db.query(query, [email, password], (err, results) => {
+  executeQuery(query, [email, password], (err, results) => {
     if (err) {
       console.error("Error querying user:", err);
       res.status(500).json({ error: "Database error" });
