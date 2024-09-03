@@ -74,7 +74,7 @@ app.post("/api/create-account", async (req, res) => {
   }
 });
 
-// API route to authenticate a user
+// API route to authenticate a user (ALL GOOD)
 app.post("/api/login", (req, res) => {
   const { email, password } = req.body;
 
@@ -113,7 +113,6 @@ app.post("/api/login", (req, res) => {
   });
 });
 
-// API route to save matrix data
 app.post("/api/save-matrix", (req, res) => {
   const token = req.headers.authorization?.split(" ")[1]; // Extract JWT token
   if (!token) {
@@ -126,9 +125,9 @@ app.post("/api/save-matrix", (req, res) => {
     }
 
     const userId = decoded.userId; // Extract userId from token
-    const { matrix } = req.body;
+    const { matrixData } = req.body; // Expecting matrixData instead of matrix
 
-    if (!userId || !matrix || !Array.isArray(matrix)) {
+    if (!userId || !matrixData || !Array.isArray(matrixData)) {
       return res.status(400).json({ error: "Invalid input data" });
     }
 
@@ -138,12 +137,13 @@ app.post("/api/save-matrix", (req, res) => {
         return;
       }
 
+      // SQL query to insert matrix data
       const query =
         "INSERT INTO matrix_data (user_id, column_name, transformation) VALUES ?";
-      const values = matrix.map((row) => [
-        userId,
-        row.columnName,
-        row.transformation,
+      const values = matrixData.map((row) => [
+        userId, // user_id
+        row.columnName, // column_name
+        row.transformation, // transformation
       ]);
 
       connection.query(query, [values], (err, result) => {
