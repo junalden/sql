@@ -104,44 +104,52 @@ app.post("/api/login", (req, res) => {
   });
 });
 
-// Route to handle saving matrix data
-app.post("/api/save-matrix", (req, res) => {
-  const { userId, matrix } = req.body; // Expecting { userId: <id>, matrix: [ { columnName, transformation }, ... ] }
+const jwt = require("jsonwebtoken");
 
-  // Validate input data
-  if (!userId || !matrix || !Array.isArray(matrix)) {
-    return res.status(400).json({ error: "Invalid input data" });
+app.post("/api/save-matrix", (req, res) => {
+  const token = req.headers.authorization?.split(" ")[1]; // Extract JWT token
+  if (!token) {
+    return res.status(401).json({ error: "No token provided" });
   }
 
-  // Get a connection from the pool
-  pool.getConnection((err, connection) => {
+  jwt.verify(token, process.env.JWT_SECRET, (err, decoded) => {
     if (err) {
-      console.error("Database connection error:", err.message);
-      return res
-        .status(500)
-        .json({ error: "Database connection error", details: err.message });
+      return res.status(403).json({ error: "Invalid token" });
     }
 
-    // Prepare SQL query and values
-    const query =
-      "INSERT INTO matrix_data (user_id, column_name, transformation) VALUES ?";
-    const values = matrix.map((row) => [
-      userId,
-      row.columnName,
-      row.transformation,
-    ]);
+    const userId = decoded.userId; // Extract userId from token
+    const { matrix } = req.body;
 
-    // Execute query
-    connection.query(query, [values], (err, result) => {
-      connection.release(); // Release connection back to the pool
+    if (!userId || !matrix || !Array.isArray(matrix)) {
+      return res.status(400).json({ error: "Invalid input data" });
+    }
 
+    getConnection((err, connection) => {
       if (err) {
-        console.error("Error inserting matrix data:", err.message);
-        return res
-          .status(500)
-          .json({ error: "Database error", details: err.message });
+        res.status(500).json({ error: "Database error" });
+        return;
       }
-      res.status(201).json({ message: "Matrix data saved successfully" });
+
+      const query =
+        "INSERT INTO matrix_data (user_id, column_name, transformation) VALUES ?";
+      const values = matrix.map((row) => [
+        userId,
+        row.columnName,
+        row.transformation,
+      ]);
+
+      connection.query(query, [values], (err, result) => {
+        connection.release(); // Release connection back to the pool
+
+        if (err) {
+          console.error("Error inserting matrix data:", err.message);
+          res
+            .status(500)
+            .json({ error: "Database error", details: err.message });
+          return;
+        }
+        res.status(201).json({ message: "Matrix data saved successfully" });
+      });
     });
   });
 });
