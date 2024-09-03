@@ -104,6 +104,78 @@ app.post("/api/login", (req, res) => {
   });
 });
 
+// Route to handle saving matrix data
+app.post("/api/save-matrix", (req, res) => {
+  const { userId, matrix } = req.body; // Expecting { userId: <id>, matrix: [ { columnName, transformation }, ... ] }
+
+  // Validate input data
+  if (!userId || !matrix || !Array.isArray(matrix)) {
+    return res.status(400).json({ error: "Invalid input data" });
+  }
+
+  // Get a connection from the pool
+  pool.getConnection((err, connection) => {
+    if (err) {
+      console.error("Database connection error:", err.message);
+      return res
+        .status(500)
+        .json({ error: "Database connection error", details: err.message });
+    }
+
+    // Prepare SQL query and values
+    const query =
+      "INSERT INTO matrix_data (user_id, column_name, transformation) VALUES ?";
+    const values = matrix.map((row) => [
+      userId,
+      row.columnName,
+      row.transformation,
+    ]);
+
+    // Execute query
+    connection.query(query, [values], (err, result) => {
+      connection.release(); // Release connection back to the pool
+
+      if (err) {
+        console.error("Error inserting matrix data:", err.message);
+        return res
+          .status(500)
+          .json({ error: "Database error", details: err.message });
+      }
+      res.status(201).json({ message: "Matrix data saved successfully" });
+    });
+  });
+});
+
+app.get("/api/get-matrix/:userId", (req, res) => {
+  const userId = req.params.userId;
+
+  if (!userId) {
+    return res.status(400).json({ error: "User ID is required" });
+  }
+
+  getConnection((err, connection) => {
+    if (err) {
+      res.status(500).json({ error: "Database error" });
+      return;
+    }
+
+    const query =
+      "SELECT column_name, transformation FROM matrix_data WHERE user_id = ?";
+
+    connection.query(query, [userId], (err, results) => {
+      connection.release(); // Release connection back to the pool
+
+      if (err) {
+        console.error("Error retrieving matrix data:", err.message);
+        res.status(500).json({ error: "Database error", details: err.message });
+        return;
+      }
+
+      res.status(200).json(results);
+    });
+  });
+});
+
 // Function to generate JWT token (example, replace with your implementation)
 const generateJwtToken = (user) => {
   // Your JWT generation logic here
