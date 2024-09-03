@@ -1,10 +1,11 @@
 const express = require("express");
 const mysql = require("mysql");
-const bcrypt = require("bcrypt"); // Import bcrypt
+const bcrypt = require("bcrypt");
 const cors = require("cors");
+const jwt = require("jsonwebtoken");
+
 const app = express();
 const port = process.env.PORT || 5000;
-// const { generateToken } = require("./authUtils");
 
 // Use CORS middleware
 app.use(cors()); // This will allow all origins by default
@@ -29,6 +30,13 @@ const getConnection = (callback) => {
       return;
     }
     callback(null, connection);
+  });
+};
+
+// Function to generate JWT tokens
+const generateToken = (user) => {
+  return jwt.sign({ userId: user.id }, process.env.JWT_SECRET, {
+    expiresIn: "1h",
   });
 };
 
@@ -65,15 +73,6 @@ app.post("/api/create-account", async (req, res) => {
     res.status(500).json({ error: "Hashing error" });
   }
 });
-
-// Function to generate JWT tokens
-const jwt = require("jsonwebtoken");
-
-const generateToken = (user) => {
-  return jwt.sign(user, process.env.JWT_SECRET, { expiresIn: "1h" });
-};
-
-// module.exports = { generateToken };
 
 // API route to authenticate a user
 app.post("/api/login", (req, res) => {
@@ -114,6 +113,7 @@ app.post("/api/login", (req, res) => {
   });
 });
 
+// API route to save matrix data
 app.post("/api/save-matrix", (req, res) => {
   const token = req.headers.authorization?.split(" ")[1]; // Extract JWT token
   if (!token) {
@@ -162,6 +162,7 @@ app.post("/api/save-matrix", (req, res) => {
   });
 });
 
+// API route to get matrix data
 app.get("/api/get-matrix/:userId", (req, res) => {
   const userId = req.params.userId;
 
@@ -191,12 +192,6 @@ app.get("/api/get-matrix/:userId", (req, res) => {
     });
   });
 });
-
-// Function to generate JWT token (example, replace with your implementation)
-const generateJwtToken = (user) => {
-  // Your JWT generation logic here
-  return "your-jwt-token";
-};
 
 // Start the server
 app.listen(port, () => {
