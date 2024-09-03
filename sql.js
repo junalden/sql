@@ -4,7 +4,7 @@ const bcrypt = require("bcrypt"); // Import bcrypt
 const cors = require("cors");
 const app = express();
 const port = process.env.PORT || 5000;
-const { generateToken } = require("./authUtils");
+// const { generateToken } = require("./authUtils");
 
 // Use CORS middleware
 app.use(cors()); // This will allow all origins by default
@@ -67,6 +67,13 @@ app.post("/api/create-account", async (req, res) => {
 });
 
 // Function to generate JWT tokens
+const jwt = require("jsonwebtoken");
+
+const generateToken = (user) => {
+  return jwt.sign(user, process.env.ACCESS_TOKEN_SECRET, { expiresIn: "1h" });
+};
+
+// module.exports = { generateToken };
 
 // API route to authenticate a user
 app.post("/api/login", (req, res) => {
