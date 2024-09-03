@@ -114,101 +114,74 @@ app.post("/api/login", (req, res) => {
 });
 
 app.post("/api/save-matrix", (req, res) => {
-  const token = req.headers.authorization?.split(" ")[1]; // Extract JWT token
-  if (!token) {
-    return res.status(401).json({ error: "No token provided" });
-  }
+  const { userId, matrixId, matrixData } = req.body;
 
-  jwt.verify(token, process.env.JWT_SECRET, (err, decoded) => {
-    if (err) {
-      return res.status(403).json({ error: "Invalid token" });
-    }
-
-    const userId = req.body.userId;
-    const matrixId = req.body.matrixId; // This can be null if auto-incremented
-    const matrixData = req.body.matrixData;
-
-    if (!userId || !matrixData || !Array.isArray(matrixData)) {
-      return res.status(400).json({ error: "Invalid input data" });
-    }
-
-    getConnection((err, connection) => {
-      if (err) {
-        res.status(500).json({ error: "Database error" });
-        return;
-      }
-
-      // Handle auto-increment of matrixId
-      const matrixQuery = "INSERT INTO matrix (user_id) VALUES (?)";
-      connection.query(matrixQuery, [userId], (err, result) => {
-        if (err) {
-          connection.release();
-          return res.status(500).json({ error: "Database error" });
-        }
-
-        const newMatrixId = result.insertId; // Get the auto-incremented matrixId
-
-        const dataQuery =
-          "INSERT INTO matrix_data (user_id, matrix_id, column_name, transformation) VALUES ?";
-        const values = matrixData.map((row) => [
-          userId,
-          newMatrixId,
-          row.columnName,
-          row.transformation,
-        ]);
-
-        connection.query(dataQuery, [values], (err) => {
-          connection.release();
-
-          if (err) {
-            console.error("Error inserting matrix data:", err.message);
-            return res
-              .status(500)
-              .json({ error: "Database error", details: err.message });
-          }
-
-          res
-            .status(201)
-            .json({
-              message: "Matrix data saved successfully",
-              matrixId: newMatrixId,
-            });
-        });
-      });
-    });
-  });
-});
-
-app.get("/api/get-matrix/:userId/:matrixId", (req, res) => {
-  const userId = req.params.userId;
-  const matrixId = req.params.matrixId;
-
-  if (!userId || !matrixId) {
-    return res
-      .status(400)
-      .json({ error: "User ID and Matrix ID are required" });
+  if (!userId || !Array.isArray(matrixData) || matrixData.length === 0) {
+    return res.status(400).json({ error: "Invalid input data" });
   }
 
   getConnection((err, connection) => {
     if (err) {
-      res.status(500).json({ error: "Database error" });
-      return;
+      return res.status(500).json({ error: "Database error" });
     }
 
-    const query =
-      "SELECT column_name, transformation FROM matrix_data WHERE user_id = ? AND matrix_id = ?";
+    // Generate new matrixId if not provided
+    const generateNewMatrixId = (callback) => {
+      const query =
+        "SELECT MAX(matrix_id) AS maxMatrixId FROM matrix_data WHERE user_id = ?";
+      connection.query(query, [userId], (err, results) => {
+        if (err) {
+          callback(err, null);
+        } else {
+          const lastMatrixId = results[0].maxMatrixId || 0; // If null, start with 0
+          const newMatrixId = lastMatrixId + 1;
+          callback(null, newMatrixId);
+        }
+      });
+    };
 
-    connection.query(query, [userId, matrixId], (err, results) => {
-      connection.release(); // Release connection back to the pool
+    const insertMatrixData = (matrixIdToUse) => {
+      const values = matrixData.map((row) => [
+        userId,
+        matrixIdToUse,
+        row.columnName,
+        row.transformation,
+      ]);
 
-      if (err) {
-        console.error("Error retrieving matrix data:", err.message);
-        res.status(500).json({ error: "Database error", details: err.message });
-        return;
-      }
+      const query = `
+        INSERT INTO matrix_data (user_id, matrix_id, column_name, transformation)
+        VALUES ?
+      `;
 
-      res.status(200).json(results);
-    });
+      connection.query(query, [values], (err, result) => {
+        connection.release();
+        if (err) {
+          return res
+            .status(500)
+            .json({ error: "Database error", details: err.message });
+        }
+
+        res.status(201).json({
+          message: "Matrix data saved successfully",
+          matrixId: matrixIdToUse,
+        });
+      });
+    };
+
+    if (matrixId) {
+      insertMatrixData(matrixId);
+    } else {
+      generateNewMatrixId((err, newMatrixId) => {
+        if (err) {
+          connection.release();
+          return res.status(500).json({
+            error: "Error generating new matrixId",
+            details: err.message,
+          });
+        }
+        insertMatrixData(newMatrixId);
+      });
+    }
   });
 });
 
