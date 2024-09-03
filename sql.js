@@ -114,8 +114,6 @@ app.post("/api/login", (req, res) => {
   });
 });
 
-const jwt = require("jsonwebtoken");
-
 app.post("/api/save-matrix", (req, res) => {
   const token = req.headers.authorization?.split(" ")[1]; // Extract JWT token
   if (!token) {
