@@ -305,6 +305,42 @@ app.get("/api/get-matrix/:userId", (req, res) => {
   });
 });
 
+// Endpoint to load available matrices
+app.get("/api/get-matrix-list", (req, res) => {
+  const token = req.headers.authorization?.split(" ")[1];
+
+  if (!token) {
+    return res.status(401).json({ error: "No token provided" });
+  }
+
+  jwt.verify(token, process.env.JWT_SECRET, (err, decoded) => {
+    if (err) {
+      return res.status(403).json({ error: "Invalid token" });
+    }
+
+    const userId = decoded.userId;
+
+    getConnection((err, connection) => {
+      if (err) {
+        return res.status(500).json({ error: "Database error" });
+      }
+
+      const query =
+        "SELECT DISTINCT matrix_id FROM matrix_data WHERE user_id = ?";
+      connection.query(query, [userId], (err, results) => {
+        connection.release();
+        if (err) {
+          return res
+            .status(500)
+            .json({ error: "Database error", details: err.message });
+        }
+
+        res.status(200).json(results);
+      });
+    });
+  });
+});
+
 // Start the server
 app.listen(port, () => {
   console.log(`Server running on port ${port}`);
