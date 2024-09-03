@@ -113,8 +113,25 @@ app.post("/api/login", (req, res) => {
   });
 });
 
-app.post("/api/save-matrix", (req, res) => {
-  const { userId, matrixId, matrixData } = req.body;
+// Middleware to verify JWT token
+const authenticateToken = (req, res, next) => {
+  const authHeader = req.headers["authorization"];
+  const token = authHeader && authHeader.split(" ")[1];
+
+  if (token == null) return res.sendStatus(401); // If no token is found
+
+  jwt.verify(token, process.env.JWT_SECRET, (err, user) => {
+    if (err) return res.sendStatus(403); // If token is invalid
+
+    req.user = user; // Attach user object to request
+    next(); // Proceed to the next middleware or route handler
+  });
+};
+
+// API route to save matrix data
+app.post("/api/save-matrix", authenticateToken, (req, res) => {
+  const { matrixId, matrixData } = req.body;
+  const userId = req.user.userId; // Extract userId from the token
 
   if (!userId || !Array.isArray(matrixData) || matrixData.length === 0) {
     return res.status(400).json({ error: "Invalid input data" });
@@ -184,6 +201,78 @@ app.post("/api/save-matrix", (req, res) => {
     }
   });
 });
+
+// app.post("/api/save-matrix", (req, res) => {
+//   const { userId, matrixId, matrixData } = req.body;
+
+//   if (!userId || !Array.isArray(matrixData) || matrixData.length === 0) {
+//     return res.status(400).json({ error: "Invalid input data" });
+//   }
+
+//   getConnection((err, connection) => {
+//     if (err) {
+//       return res.status(500).json({ error: "Database error" });
+//     }
+
+//     // Generate new matrixId if not provided
+//     const generateNewMatrixId = (callback) => {
+//       const query =
+//         "SELECT MAX(matrix_id) AS maxMatrixId FROM matrix_data WHERE user_id = ?";
+//       connection.query(query, [userId], (err, results) => {
+//         if (err) {
+//           callback(err, null);
+//         } else {
+//           const lastMatrixId = results[0].maxMatrixId || 0; // If null, start with 0
+//           const newMatrixId = lastMatrixId + 1;
+//           callback(null, newMatrixId);
+//         }
+//       });
+//     };
+
+//     const insertMatrixData = (matrixIdToUse) => {
+//       const values = matrixData.map((row) => [
+//         userId,
+//         matrixIdToUse,
+//         row.columnName,
+//         row.transformation,
+//       ]);
+
+//       const query = `
+//         INSERT INTO matrix_data (user_id, matrix_id, column_name, transformation)
+//         VALUES ?
+//       `;
+
+//       connection.query(query, [values], (err, result) => {
+//         connection.release();
+//         if (err) {
+//           return res
+//             .status(500)
+//             .json({ error: "Database error", details: err.message });
+//         }
+
+//         res.status(201).json({
+//           message: "Matrix data saved successfully",
+//           matrixId: matrixIdToUse,
+//         });
+//       });
+//     };
+
+//     if (matrixId) {
+//       insertMatrixData(matrixId);
+//     } else {
+//       generateNewMatrixId((err, newMatrixId) => {
+//         if (err) {
+//           connection.release();
+//           return res.status(500).json({
+//             error: "Error generating new matrixId",
+//             details: err.message,
+//           });
+//         }
+//         insertMatrixData(newMatrixId);
+//       });
+//     }
+//   });
+// });
 
 // API route to get matrix data
 app.get("/api/get-matrix/:userId", (req, res) => {
