@@ -125,9 +125,9 @@ app.post("/api/save-matrix", (req, res) => {
     }
 
     const userId = decoded.userId; // Extract userId from token
-    const { matrixData } = req.body; // Expecting matrixData instead of matrix
+    const { matrixId, matrixData } = req.body;
 
-    if (!userId || !matrixData || !Array.isArray(matrixData)) {
+    if (!userId || !matrixId || !matrixData || !Array.isArray(matrixData)) {
       return res.status(400).json({ error: "Invalid input data" });
     }
 
@@ -137,27 +137,72 @@ app.post("/api/save-matrix", (req, res) => {
         return;
       }
 
-      // SQL query to insert matrix data
-      const query =
-        "INSERT INTO matrix_data (user_id, column_name, transformation) VALUES ?";
-      const values = matrixData.map((row) => [
-        userId, // user_id
-        row.columnName, // column_name
-        row.transformation, // transformation
-      ]);
+      // Clear existing rows for this matrixId before inserting new data
+      connection.query(
+        "DELETE FROM matrix_data WHERE user_id = ? AND matrix_id = ?",
+        [userId, matrixId],
+        (err) => {
+          if (err) {
+            connection.release();
+            return res.status(500).json({ error: "Database error" });
+          }
 
-      connection.query(query, [values], (err, result) => {
-        connection.release(); // Release connection back to the pool
+          const query =
+            "INSERT INTO matrix_data (user_id, matrix_id, column_name, transformation) VALUES ?";
+          const values = matrixData.map((row) => [
+            userId,
+            matrixId,
+            row.columnName,
+            row.transformation,
+          ]);
 
-        if (err) {
-          console.error("Error inserting matrix data:", err.message);
-          res
-            .status(500)
-            .json({ error: "Database error", details: err.message });
-          return;
+          connection.query(query, [values], (err, result) => {
+            connection.release(); // Release connection back to the pool
+
+            if (err) {
+              console.error("Error inserting matrix data:", err.message);
+              return res
+                .status(500)
+                .json({ error: "Database error", details: err.message });
+            }
+
+            res.status(201).json({ message: "Matrix data saved successfully" });
+          });
         }
-        res.status(201).json({ message: "Matrix data saved successfully" });
-      });
+      );
+    });
+  });
+});
+
+app.get("/api/get-matrix/:userId/:matrixId", (req, res) => {
+  const userId = req.params.userId;
+  const matrixId = req.params.matrixId;
+
+  if (!userId || !matrixId) {
+    return res
+      .status(400)
+      .json({ error: "User ID and Matrix ID are required" });
+  }
+
+  getConnection((err, connection) => {
+    if (err) {
+      res.status(500).json({ error: "Database error" });
+      return;
+    }
+
+    const query =
+      "SELECT column_name, transformation FROM matrix_data WHERE user_id = ? AND matrix_id = ?";
+
+    connection.query(query, [userId, matrixId], (err, results) => {
+      connection.release(); // Release connection back to the pool
+
+      if (err) {
+        console.error("Error retrieving matrix data:", err.message);
+        res.status(500).json({ error: "Database error", details: err.message });
+        return;
+      }
+
+      res.status(200).json(results);
     });
   });
 });
