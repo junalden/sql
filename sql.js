@@ -341,6 +341,47 @@ app.get("/api/get-matrix-list", (req, res) => {
   });
 });
 
+const mockData = {
+  1: [
+    // matrix_id: 1
+    {
+      user_id: 1,
+      matrix_id: 1,
+      column_name: "Column 1",
+      transformation: "Transform 1",
+    },
+    {
+      user_id: 1,
+      matrix_id: 1,
+      column_name: "Column 2",
+      transformation: "Transform 2",
+    },
+  ],
+  2: [
+    // matrix_id: 2
+    {
+      user_id: 1,
+      matrix_id: 2,
+      column_name: "Column A",
+      transformation: "Transform A",
+    },
+    {
+      user_id: 1,
+      matrix_id: 2,
+      column_name: "Column B",
+      transformation: "Transform B",
+    },
+  ],
+};
+
+app.get("/api/get-matrix/:userId/:matrixId", (req, res) => {
+  const { userId, matrixId } = req.params;
+
+  // Simulate fetching data based on matrixId
+  const data = mockData[matrixId] || [];
+  res.json(data);
+});
+
 // Start the server
 app.listen(port, () => {
   console.log(`Server running on port ${port}`);
