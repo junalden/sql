@@ -89,3 +89,78 @@ app.post("/api/login", (req, res) => {
 app.listen(port, () => {
   console.log(`Server running on port ${port}`);
 });
+
+// API route to save matrix data
+app.post("/api/save-matrix", (req, res) => {
+  const { userId, matrixData } = req.body; // Assuming matrixData is an array of objects
+
+  if (!userId || !matrixData) {
+    return res
+      .status(400)
+      .json({ error: "User ID and matrix data are required" });
+  }
+
+  getConnection((err, connection) => {
+    if (err) {
+      res.status(500).json({ error: "Database error" });
+      return;
+    }
+
+    // Clear existing matrix data for this user
+    connection.query(
+      "DELETE FROM matrix_data WHERE user_id = ?",
+      [userId],
+      (err) => {
+        if (err) {
+          connection.release();
+          res
+            .status(500)
+            .json({ error: "Database error", details: err.message });
+          return;
+        }
+
+        // Insert new matrix data
+        const query =
+          "INSERT INTO matrix_data (user_id, column_name, transformation) VALUES ?";
+        const values = matrixData.map((row) => [
+          userId,
+          row.columnName,
+          row.transformation,
+        ]);
+        connection.query(query, [values], (err) => {
+          connection.release(); // Release connection back to the pool
+          if (err) {
+            res
+              .status(500)
+              .json({ error: "Database error", details: err.message });
+            return;
+          }
+          res.status(200).json({ message: "Matrix data saved successfully" });
+        });
+      }
+    );
+  });
+});
+
+// API route to retrieve matrix data
+app.get("/api/get-matrix/:userId", (req, res) => {
+  const userId = req.params.userId;
+
+  getConnection((err, connection) => {
+    if (err) {
+      res.status(500).json({ error: "Database error" });
+      return;
+    }
+
+    const query =
+      "SELECT column_name, transformation FROM matrix_data WHERE user_id = ?";
+    connection.query(query, [userId], (err, results) => {
+      connection.release(); // Release connection back to the pool
+      if (err) {
+        res.status(500).json({ error: "Database error", details: err.message });
+        return;
+      }
+      res.status(200).json(results);
+    });
+  });
+});
