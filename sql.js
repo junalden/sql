@@ -1,5 +1,5 @@
 const express = require("express");
-const mysql = require("mysql");
+const mysql = require("mysql2/promise"); // Use mysql2 for promise-based queries
 const bcrypt = require("bcrypt");
 const cors = require("cors");
 const jwt = require("jsonwebtoken");
@@ -13,6 +13,7 @@ app.use(cors()); // This will allow all origins by default
 // Middleware to parse JSON
 app.use(express.json());
 
+// Create a pool of connections
 const pool = mysql.createPool({
   connectionLimit: 10,
   host: process.env.DB_HOST,
@@ -21,23 +22,27 @@ const pool = mysql.createPool({
   database: process.env.DB_NAME,
 });
 
-// Function to get a connection from the pool
-const getConnection = (callback) => {
-  pool.getConnection((err, connection) => {
-    if (err) {
-      console.error("Error getting connection from pool:", err);
-      callback(err);
-      return;
-    }
-    callback(null, connection);
-  });
-};
-
 // Function to generate JWT tokens
 const generateToken = (user) => {
   return jwt.sign({ userId: user.id }, process.env.JWT_SECRET, {
     expiresIn: "1h",
   });
+};
+
+// Middleware to verify JWT token
+const authenticateToken = async (req, res, next) => {
+  const authHeader = req.headers["authorization"];
+  const token = authHeader && authHeader.split(" ")[1];
+
+  if (!token) return res.sendStatus(401); // If no token is found
+
+  try {
+    const user = await jwt.verify(token, process.env.JWT_SECRET);
+    req.user = user; // Attach user object to request
+    next(); // Proceed to the next middleware or route handler
+  } catch (err) {
+    res.sendStatus(403); // If token is invalid
+  }
 };
 
 // API route to create a new user
@@ -48,88 +53,49 @@ app.post("/api/create-account", async (req, res) => {
     // Hash the password
     const hashedPassword = await bcrypt.hash(password, 10);
 
-    getConnection((err, connection) => {
-      if (err) {
-        res.status(500).json({ error: "Database error" });
-        return;
-      }
-
+    const connection = await pool.getConnection();
+    try {
       const query = "INSERT INTO users (email, password) VALUES (?, ?)";
-      connection.query(query, [email, hashedPassword], (err, result) => {
-        connection.release(); // Release connection back to the pool
-
-        if (err) {
-          console.error("Error inserting user:", err.message);
-          res
-            .status(500)
-            .json({ error: "Database error", details: err.message });
-          return;
-        }
-
-        res.status(201).json({ message: "Account created successfully" });
-      });
-    });
+      await connection.query(query, [email, hashedPassword]);
+      res.status(201).json({ message: "Account created successfully" });
+    } finally {
+      connection.release(); // Release connection back to the pool
+    }
   } catch (error) {
     res.status(500).json({ error: "Hashing error" });
   }
 });
 
-// API route to authenticate a user (ALL GOOD)
-app.post("/api/login", (req, res) => {
+// API route to authenticate a user
+app.post("/api/login", async (req, res) => {
   const { email, password } = req.body;
 
-  getConnection((err, connection) => {
-    if (err) {
-      res.status(500).json({ error: "Database error" });
-      return;
-    }
-
+  const connection = await pool.getConnection();
+  try {
     const query = "SELECT * FROM users WHERE email = ?";
-    connection.query(query, [email], async (err, results) => {
-      connection.release(); // Release connection back to the pool
+    const [results] = await connection.query(query, [email]);
 
-      if (err) {
-        console.error("Error querying user:", err.message);
-        res.status(500).json({ error: "Database error", details: err.message });
-        return;
-      }
-
-      if (results.length > 0) {
-        const user = results[0];
-
-        // Compare the provided password with the hashed password
-        const isMatch = await bcrypt.compare(password, user.password);
-        if (isMatch) {
-          // Generate a JWT token and send it to the client
-          const token = generateToken(user);
-          res.status(200).json({ message: "Login successful", token });
-        } else {
-          res.status(401).json({ error: "Invalid credentials" });
-        }
+    if (results.length > 0) {
+      const user = results[0];
+      const isMatch = await bcrypt.compare(password, user.password);
+      if (isMatch) {
+        const token = generateToken(user);
+        res.status(200).json({ message: "Login successful", token });
       } else {
         res.status(401).json({ error: "Invalid credentials" });
       }
-    });
-  });
+    } else {
+      res.status(401).json({ error: "Invalid credentials" });
+    }
+  } catch (error) {
+    res.status(500).json({ error: "Database error", details: error.message });
+  } finally {
+    connection.release(); // Release connection back to the pool
+  }
 });
 
-// Middleware to verify JWT token -- WORKING SINCE IT'S USED in SAVE-MATRIX
-const authenticateToken = (req, res, next) => {
-  const authHeader = req.headers["authorization"];
-  const token = authHeader && authHeader.split(" ")[1];
-
-  if (token == null) return res.sendStatus(401); // If no token is found
-
-  jwt.verify(token, process.env.JWT_SECRET, (err, user) => {
-    if (err) return res.sendStatus(403); // If token is invalid
-
-    req.user = user; // Attach user object to request
-    next(); // Proceed to the next middleware or route handler
-  });
-};
-
 // API route to save matrix data
-app.post("/api/save-matrix", authenticateToken, (req, res) => {
+app.post("/api/save-matrix", authenticateToken, async (req, res) => {
   const { matrixId, matrixData } = req.body;
   const userId = req.user.userId; // Extract userId from the token
 
@@ -137,130 +103,73 @@ app.post("/api/save-matrix", authenticateToken, (req, res) => {
     return res.status(400).json({ error: "Invalid input data" });
   }
 
-  getConnection((err, connection) => {
-    if (err) {
-      return res.status(500).json({ error: "Database error" });
-    }
-
+  const connection = await pool.getConnection();
+  try {
     // Generate new matrixId if not provided
-    const generateNewMatrixId = (callback) => {
-      const query =
-        "SELECT MAX(matrix_id) AS maxMatrixId FROM matrix_data WHERE user_id = ?";
-      connection.query(query, [userId], (err, results) => {
-        if (err) {
-          callback(err, null);
-        } else {
-          const lastMatrixId = results[0].maxMatrixId || 0; // If null, start with 0
-          const newMatrixId = lastMatrixId + 1;
-          callback(null, newMatrixId);
-        }
-      });
-    };
-
-    const insertMatrixData = (matrixIdToUse) => {
-      const values = matrixData.map((row) => [
-        userId,
-        matrixIdToUse,
-        row.columnName,
-        row.transformation,
-      ]);
-
-      const query = `
-        INSERT INTO matrix_data (user_id, matrix_id, column_name, transformation)
-        VALUES ?
-      `;
-
-      connection.query(query, [values], (err, result) => {
-        connection.release();
-        if (err) {
-          return res
-            .status(500)
-            .json({ error: "Database error", details: err.message });
-        }
-
-        res.status(201).json({
-          message: "Matrix data saved successfully",
-          matrixId: matrixIdToUse,
-        });
-      });
-    };
-
-    if (matrixId) {
-      insertMatrixData(matrixId);
-    } else {
-      generateNewMatrixId((err, newMatrixId) => {
-        if (err) {
-          connection.release();
-          return res.status(500).json({
-            error: "Error generating new matrixId",
-            details: err.message,
-          });
-        }
-        insertMatrixData(newMatrixId);
-      });
+    if (!matrixId) {
+      const [result] = await connection.query(
+        "SELECT MAX(matrix_id) AS maxMatrixId FROM matrix_data WHERE user_id = ?",
+        [userId]
+      );
+      matrixId = (result[0].maxMatrixId || 0) + 1;
     }
-  });
+
+    const values = matrixData.map((row) => [
+      userId,
+      matrixId,
+      row.columnName,
+      row.transformation,
+    ]);
+
+    const query = `
+      INSERT INTO matrix_data (user_id, matrix_id, column_name, transformation)
+      VALUES ?
+    `;
+
+    await connection.query(query, [values]);
+    res.status(201).json({
+      message: "Matrix data saved successfully",
+      matrixId,
+    });
+  } catch (error) {
+    res.status(500).json({ error: "Database error", details: error.message });
+  } finally {
+    connection.release(); // Release connection back to the pool
+  }
 });
 
 // Endpoint to load available matrices
-app.get("/api/get-matrix-list", (req, res) => {
-  const token = req.headers.authorization?.split(" ")[1];
+app.get("/api/get-matrix-list", authenticateToken, async (req, res) => {
+  const userId = req.user.userId; // Extract userId from the token
 
-  if (!token) {
-    return res.status(401).json({ error: "No token provided" });
+  const connection = await pool.getConnection();
+  try {
+    const query =
+      "SELECT DISTINCT matrix_id FROM matrix_data WHERE user_id = ?";
+    const [results] = await connection.query(query, [userId]);
+    res.status(200).json(results);
+  } catch (error) {
+    res.status(500).json({ error: "Database error", details: error.message });
+  } finally {
+    connection.release(); // Release connection back to the pool
   }
-
-  jwt.verify(token, process.env.JWT_SECRET, (err, decoded) => {
-    if (err) {
-      return res.status(403).json({ error: "Invalid token" });
-    }
-
-    const userId = decoded.userId;
-
-    getConnection((err, connection) => {
-      if (err) {
-        return res.status(500).json({ error: "Database error" });
-      }
-
-      const query =
-        "SELECT DISTINCT matrix_id FROM matrix_data WHERE user_id = ?";
-      connection.query(query, [userId], (err, results) => {
-        connection.release();
-        if (err) {
-          return res
-            .status(500)
-            .json({ error: "Database error", details: err.message });
-        }
-
-        res.status(200).json(results);
-      });
-    });
-  });
 });
 
-// API to get matrix data per user per matrix id
-// API to get matrix data per user per matrix id
+// Endpoint to get matrix data
 app.get("/api/get-matrix/:matrixId", authenticateToken, async (req, res) => {
   const { matrixId } = req.params;
-  const userId = req.user.user_id; // Retrieve user_id from JWT
+  const userId = req.user.userId; // Extract userId from the token
 
+  const connection = await pool.getConnection();
   try {
-    const [rows] = await pool.query(
-      "SELECT column_name, transformation FROM matrix_data WHERE matrix_id = ? AND user_id = ?",
-      [matrixId, userId]
-    );
-
-    console.log("Database Response:", rows);
-
-    // Check if rows is an array
-    if (!Array.isArray(rows)) {
-      throw new Error("Unexpected response format from the database");
-    }
-
+    const query =
+      "SELECT column_name, transformation FROM matrix_data WHERE matrix_id = ? AND user_id = ?";
+    const [rows] = await connection.query(query, [matrixId, userId]);
     res.json(rows);
   } catch (error) {
-    console.error("Error fetching matrix data:", error.message); // Log the error message
-    res.status(500).json({ error: "Internal Server Error" });
+    res.status(500).json({ error: "Database error", details: error.message });
+  } finally {
+    connection.release(); // Release connection back to the pool
   }
 });
 

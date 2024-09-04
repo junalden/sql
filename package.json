@@ -11,6 +11,7 @@
     "dotenv": "^16.4.5",
     "express": "^4.x.x",
     "jsonwebtoken": "^9.0.2",
-    "mysql": "^2.x.x"
+    "mysql": "^2.x.x",
+    "mysql2": "^3.11.0"
   }
 }
