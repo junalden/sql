@@ -1,22 +1,24 @@
-# Dependency directories
+# Node modules
 node_modules/
 
-# Build output
-dist/
-build/
-
-# Environment files
-.env
-.env.local
-
 # Logs
+logs/
 *.log
 npm-debug.log*
 
-# OS-specific files
-.DS_Store
-Thumbs.db
+# Environment variables
+.env
 
-# IDE directories
+# Temporary files
+tmp/
+*.tmp
+
+# Build output
+dist/
+
+# Excel files generated during processing
+gemini_response.xlsx
+
+# IDE specific files
 .vscode/
 .idea/

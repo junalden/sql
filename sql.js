@@ -3,6 +3,13 @@ const mysql = require("mysql2/promise");
 const bcrypt = require("bcrypt");
 const cors = require("cors");
 const jwt = require("jsonwebtoken");
+const multer = require("multer");
+const axios = require("axios");
+const fs = require("fs");
+const path = require("path");
+const pdfParse = require("pdf-parse");
+const XLSX = require("xlsx");
+require("dotenv").config();
 
 const app = express();
 const port = process.env.PORT || 5000;
@@ -44,6 +51,84 @@ const authenticateToken = async (req, res, next) => {
     res.sendStatus(403); // If token is invalid
   }
 };
+
+// Function to extract text from a PDF
+async function extractTextFromPdf(pdfPath) {
+  const data = fs.readFileSync(pdfPath);
+  const pdfData = await pdfParse(data);
+  return pdfData.text;
+}
+
+// Function to send text to Gemini AI API
+async function processTextWithGemini(prompt) {
+  try {
+    const response = await axios.post(
+      `https://generativelanguage.googleapis.com/v1/models/gemini-pro:generateContent?key=${process.env.API_KEY}`,
+      {
+        contents: [
+          {
+            role: "user",
+            parts: [{ text: prompt }],
+          },
+        ],
+      },
+      {
+        headers: { "Content-Type": "application/json" },
+      }
+    );
+
+    return response.data;
+  } catch (error) {
+    return { error: error.message };
+  }
+}
+
+// Function to parse Markdown table and save to Excel
+function saveMarkdownToExcel(markdownText, filePath) {
+  const lines = markdownText.trim().split("\n");
+  const workbook = XLSX.utils.book_new();
+  const worksheet = [];
+
+  if (!lines.length || lines.length < 3) {
+    worksheet.push([
+      "Error",
+      "Markdown text is not in expected format or is empty.",
+    ]);
+    XLSX.utils.book_append_sheet(
+      workbook,
+      XLSX.utils.aoa_to_sheet(worksheet),
+      "Gemini API Results"
+    );
+    XLSX.writeFile(workbook, filePath);
+    return;
+  }
+
+  const headers = lines[0]
+    .trim()
+    .split("|")
+    .map((header) => header.trim())
+    .filter((header) => header);
+  worksheet.push(headers);
+
+  for (const line of lines.slice(2)) {
+    const row = line
+      .trim()
+      .split("|")
+      .map((cell) => cell.trim())
+      .filter((cell) => cell);
+    worksheet.push(row);
+  }
+
+  XLSX.utils.book_append_sheet(
+    workbook,
+    XLSX.utils.aoa_to_sheet(worksheet),
+    "Gemini API Results"
+  );
+  XLSX.writeFile(workbook, filePath);
+}
+
+// Middleware to handle file uploads
+const upload = multer({ dest: "tmp/" });
 
 // API route to create a new user
 app.post("/api/create-account", async (req, res) => {
@@ -178,6 +263,66 @@ app.get("/api/get-matrix/:matrixId", authenticateToken, async (req, res) => {
       .json({ error: "Error fetching matrix data", details: error.message });
   }
 });
+
+// PDF processing route
+app.post(
+  "/api/process-pdf",
+  authenticateToken,
+  upload.single("file"),
+  async (req, res) => {
+    if (!req.file) {
+      return res.status(400).json({ error: "No file part" });
+    }
+
+    if (path.extname(req.file.originalname) !== ".pdf") {
+      return res
+        .status(400)
+        .json({ error: "Invalid file type. Only PDF files are allowed." });
+    }
+
+    try {
+      const pdfText = await extractTextFromPdf(req.file.path);
+      const prompts = req.body.prompts ? JSON.parse(req.body.prompts) : [];
+
+      let customText = "Make me a summary in table format:\n";
+      for (const row of prompts) {
+        const columnName = row.columnName || "";
+        const transformation = row.transformation || "";
+        customText += `Column Name: ${columnName}, then format ${columnName} to ${transformation}.\n`;
+      }
+
+      const combinedText = customText + "\n\n" + pdfText;
+      const geminiResponse = await processTextWithGemini(combinedText);
+
+      if (geminiResponse.error) {
+        return res.status(400).json(geminiResponse);
+      }
+
+      const candidates = geminiResponse.candidates || [{}];
+      const parts = candidates[0].content?.parts || [{}];
+      const markdownText = parts[0]?.text || "";
+
+      if (!markdownText) {
+        return res
+          .status(400)
+          .json({ error: "No content found in API response." });
+      }
+
+      const excelFilePath = path.join("tmp", "gemini_response.xlsx");
+      saveMarkdownToExcel(markdownText, excelFilePath);
+
+      res.download(excelFilePath, "PDFxCel Result.xlsx", (err) => {
+        if (err) {
+          console.error(err);
+        }
+        fs.unlinkSync(req.file.path); // Clean up the uploaded file
+        fs.unlinkSync(excelFilePath); // Clean up the generated Excel file
+      });
+    } catch (error) {
+      res.status(500).json({ error: error.message });
+    }
+  }
+);
 
 // Start the server
 app.listen(port, () => {
