@@ -104,40 +104,51 @@ app.post("/api/save-matrix", authenticateToken, async (req, res) => {
   }
 
   const connection = await pool.getConnection();
+
   try {
-    // Generate new matrixId if not provided
-    if (!matrixId) {
-      const [result] = await connection.query(
+    // Function to generate a new matrixId if not provided
+    const generateNewMatrixId = async () => {
+      const [rows] = await connection.query(
         "SELECT MAX(matrix_id) AS maxMatrixId FROM matrix_data WHERE user_id = ?",
         [userId]
       );
-      matrixId = (result[0].maxMatrixId || 0) + 1;
+      const lastMatrixId = rows[0].maxMatrixId || 0; // If null, start with 0
+      return lastMatrixId + 1;
+    };
+
+    const insertMatrixData = async (matrixIdToUse) => {
+      const values = matrixData.map((row) => [
+        userId,
+        matrixIdToUse,
+        row.columnName,
+        row.transformation,
+      ]);
+
+      await connection.query(
+        "INSERT INTO matrix_data (user_id, matrix_id, column_name, transformation) VALUES ?",
+        [values]
+      );
+    };
+
+    if (matrixId) {
+      await insertMatrixData(matrixId);
+    } else {
+      const newMatrixId = await generateNewMatrixId();
+      await insertMatrixData(newMatrixId);
+      matrixId = newMatrixId; // Update matrixId to the newly generated ID
     }
 
-    const values = matrixData.map((row) => [
-      userId,
-      matrixId,
-      row.columnName,
-      row.transformation,
-    ]);
-
-    const query = `
-      INSERT INTO matrix_data (user_id, matrix_id, column_name, transformation)
-      VALUES ?
-    `;
-
-    await connection.query(query, [values]);
     res.status(201).json({
       message: "Matrix data saved successfully",
       matrixId,
     });
   } catch (error) {
+    console.error("Error saving matrix data:", error.message);
     res.status(500).json({ error: "Database error", details: error.message });
   } finally {
-    connection.release(); // Release connection back to the pool
+    connection.release();
   }
 });
-
 // Endpoint to load available matrices
 app.get("/api/get-matrix-list", authenticateToken, async (req, res) => {
   const userId = req.user.userId; // Extract userId from the token
