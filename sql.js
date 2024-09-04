@@ -113,6 +113,21 @@ app.post("/api/login", (req, res) => {
   });
 });
 
+// Middleware to verify JWT token
+const authenticateToken = (req, res, next) => {
+  const authHeader = req.headers["authorization"];
+  const token = authHeader && authHeader.split(" ")[1];
+
+  if (token == null) return res.sendStatus(401); // If no token is found
+
+  jwt.verify(token, process.env.JWT_SECRET, (err, user) => {
+    if (err) return res.sendStatus(403); // If token is invalid
+
+    req.user = user; // Attach user object to request
+    next(); // Proceed to the next middleware or route handler
+  });
+};
+
 // API route to save matrix data
 app.post("/api/save-matrix", authenticateToken, (req, res) => {
   const { matrixId, matrixData } = req.body;
@@ -184,6 +199,37 @@ app.post("/api/save-matrix", authenticateToken, (req, res) => {
         insertMatrixData(newMatrixId);
       });
     }
+  });
+});
+
+// API route to get matrix data
+app.get("/api/get-matrix/:userId", (req, res) => {
+  const userId = req.params.userId;
+
+  if (!userId) {
+    return res.status(400).json({ error: "User ID is required" });
+  }
+
+  getConnection((err, connection) => {
+    if (err) {
+      res.status(500).json({ error: "Database error" });
+      return;
+    }
+
+    const query =
+      "SELECT column_name, transformation FROM matrix_data WHERE user_id = ?";
+
+    connection.query(query, [userId], (err, results) => {
+      connection.release(); // Release connection back to the pool
+
+      if (err) {
+        console.error("Error retrieving matrix data:", err.message);
+        res.status(500).json({ error: "Database error", details: err.message });
+        return;
+      }
+
+      res.status(200).json(results);
+    });
   });
 });
 
