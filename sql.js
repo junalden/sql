@@ -239,22 +239,27 @@ app.get("/api/get-matrix-list", (req, res) => {
 });
 
 // API to get matrix data per user per matrix id
+// API to get matrix data per user per matrix id
 app.get("/api/get-matrix/:matrixId", authenticateToken, async (req, res) => {
   const { matrixId } = req.params;
   const userId = req.user.user_id; // Retrieve user_id from JWT
 
   try {
-    // Query to select only column_name and transformation
     const [rows] = await pool.query(
       "SELECT column_name, transformation FROM matrix_data WHERE matrix_id = ? AND user_id = ?",
       [matrixId, userId]
     );
 
-    console.log("Database Response:", rows); // Log database response
+    console.log("Database Response:", rows);
+
+    // Check if rows is an array
+    if (!Array.isArray(rows)) {
+      throw new Error("Unexpected response format from the database");
+    }
 
     res.json(rows);
   } catch (error) {
-    console.error("Error fetching matrix data:", error);
+    console.error("Error fetching matrix data:", error.message); // Log the error message
     res.status(500).json({ error: "Internal Server Error" });
   }
 });
