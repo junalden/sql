@@ -341,54 +341,23 @@ app.get("/api/get-matrix-list", (req, res) => {
   });
 });
 
-const mockData = {
-  1: [
-    // matrix_id: 1
-    {
-      user_id: 5,
-      matrix_id: 1,
-      column_name: "Column 1",
-      transformation: "Transform 1",
-    },
-    {
-      user_id: 5,
-      matrix_id: 1,
-      column_name: "Column 2",
-      transformation: "Transform 2",
-    },
-  ],
-  2: [
-    // matrix_id: 2
-    {
-      user_id: 5,
-      matrix_id: 2,
-      column_name: "Column A",
-      transformation: "Transform A",
-    },
-    {
-      user_id: 5,
-      matrix_id: 2,
-      column_name: "Column B",
-      transformation: "Transform B",
-    },
-  ],
-};
-
-app.get("/api/get-matrix/:matrixId", authenticateToken, (req, res) => {
+// API to get matrix data per user per matrix id
+app.get("/api/get-matrix/:matrixId", authenticateToken, async (req, res) => {
   const { matrixId } = req.params;
-  const userId = req.user.id; // Extract userId from the request object set by the middleware
+  const userId = req.user.user_id; // Retrieve user_id from JWT
 
-  console.log("Requested matrixId:", matrixId); // Log matrixId for debugging
-  console.log("Searching for data with userId:", userId); // Log userId for debugging
+  try {
+    // Query to select only column_name and transformation
+    const [rows] = await promisePool.query(
+      "SELECT column_name, transformation FROM matrix_data WHERE matrix_id = ? AND user_id = ?",
+      [matrixId, userId]
+    );
 
-  // Simulate fetching data based on matrixId and userId
-  const data = (mockData[matrixId] || []).filter(
-    (item) => item.user_id === parseInt(userId)
-  );
-
-  console.log("Filtered Data:", data); // Log the data for debugging
-
-  res.json(data); // Send the filtered data as JSON response
+    res.json(rows);
+  } catch (error) {
+    console.error("Error fetching matrix data:", error);
+    res.status(500).json({ error: "Internal Server Error" });
+  }
 });
 
 // Start the server
