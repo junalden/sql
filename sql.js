@@ -238,23 +238,33 @@ app.get("/api/get-matrix-list", (req, res) => {
   });
 });
 
-// API to get matrix data per user per matrix id
-app.get("/api/get-matrix/:matrixId", authenticateToken, async (req, res) => {
+app.get("/api/get-matrix/:matrixId", authenticateToken, (req, res) => {
   const { matrixId } = req.params;
   const userId = req.user.user_id; // Retrieve user_id from JWT
 
-  try {
-    // Query to select only column_name and transformation
-    const [rows] = await promisePool.query(
-      "SELECT column_name, transformation FROM matrix_data WHERE matrix_id = ? AND user_id = ?",
-      [matrixId, userId]
-    );
+  pool.getConnection((err, connection) => {
+    if (err) {
+      console.error("Database connection error:", err);
+      return res
+        .status(500)
+        .json({ error: "Database error", details: err.message });
+    }
 
-    res.json(rows);
-  } catch (error) {
-    console.error("Error fetching matrix data:", error);
-    res.status(500).json({ error: "Internal Server Error" });
-  }
+    const query =
+      "SELECT column_name, transformation FROM matrix_data WHERE matrix_id = ? AND user_id = ?";
+    connection.query(query, [matrixId, userId], (err, results) => {
+      connection.release(); // Release the connection back to the pool
+
+      if (err) {
+        console.error("Query execution error:", err);
+        return res
+          .status(500)
+          .json({ error: "Database error", details: err.message });
+      }
+
+      res.json(results);
+    });
+  });
 });
 
 // Start the server
