@@ -374,21 +374,21 @@ const mockData = {
   ],
 };
 
-// Endpoint to get matrix data based on matrixId and userId from the token
 app.get("/api/get-matrix/:matrixId", authenticateToken, (req, res) => {
   const { matrixId } = req.params;
-  const { userId } = req;
+  const userId = req.user.id; // Extract userId from the request object set by the middleware
+
+  console.log("Requested matrixId:", matrixId); // Log matrixId for debugging
+  console.log("Searching for data with userId:", userId); // Log userId for debugging
 
   // Simulate fetching data based on matrixId and userId
   const data = (mockData[matrixId] || []).filter(
     (item) => item.user_id === parseInt(userId)
   );
 
-  if (data.length === 0) {
-    return res.status(404).json({ message: "Matrix not found for this user" });
-  }
+  console.log("Filtered Data:", data); // Log the data for debugging
 
-  res.json(data);
+  res.json(data); // Send the filtered data as JSON response
 });
 
 // Start the server
