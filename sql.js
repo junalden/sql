@@ -113,7 +113,7 @@ app.post("/api/login", (req, res) => {
   });
 });
 
-// Middleware to verify JWT token
+// Middleware to verify JWT token -- WORKING SINCE IT'S USED in SAVE-MATRIX
 const authenticateToken = (req, res, next) => {
   const authHeader = req.headers["authorization"];
   const token = authHeader && authHeader.split(" ")[1];
@@ -199,37 +199,6 @@ app.post("/api/save-matrix", authenticateToken, (req, res) => {
         insertMatrixData(newMatrixId);
       });
     }
-  });
-});
-
-// API route to get matrix data
-app.get("/api/get-matrix/:userId", (req, res) => {
-  const userId = req.params.userId;
-
-  if (!userId) {
-    return res.status(400).json({ error: "User ID is required" });
-  }
-
-  getConnection((err, connection) => {
-    if (err) {
-      res.status(500).json({ error: "Database error" });
-      return;
-    }
-
-    const query =
-      "SELECT column_name, transformation FROM matrix_data WHERE user_id = ?";
-
-    connection.query(query, [userId], (err, results) => {
-      connection.release(); // Release connection back to the pool
-
-      if (err) {
-        console.error("Error retrieving matrix data:", err.message);
-        res.status(500).json({ error: "Database error", details: err.message });
-        return;
-      }
-
-      res.status(200).json(results);
-    });
   });
 });
 
