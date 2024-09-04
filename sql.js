@@ -1,5 +1,5 @@
 const express = require("express");
-const mysql = require("mysql2/promise"); // Use mysql2 for promise-based queries
+const mysql = require("mysql2/promise");
 const bcrypt = require("bcrypt");
 const cors = require("cors");
 const jwt = require("jsonwebtoken");
@@ -13,7 +13,7 @@ app.use(cors()); // This will allow all origins by default
 // Middleware to parse JSON
 app.use(express.json());
 
-// Create a pool of connections
+// Create a MySQL connection pool
 const pool = mysql.createPool({
   connectionLimit: 10,
   host: process.env.DB_HOST,
@@ -54,15 +54,15 @@ app.post("/api/create-account", async (req, res) => {
     const hashedPassword = await bcrypt.hash(password, 10);
 
     const connection = await pool.getConnection();
-    try {
-      const query = "INSERT INTO users (email, password) VALUES (?, ?)";
-      await connection.query(query, [email, hashedPassword]);
-      res.status(201).json({ message: "Account created successfully" });
-    } finally {
-      connection.release(); // Release connection back to the pool
-    }
+    const query = "INSERT INTO users (email, password) VALUES (?, ?)";
+    await connection.query(query, [email, hashedPassword]);
+    connection.release(); // Release connection back to the pool
+
+    res.status(201).json({ message: "Account created successfully" });
   } catch (error) {
-    res.status(500).json({ error: "Hashing error" });
+    res
+      .status(500)
+      .json({ error: "Error creating account", details: error.message });
   }
 });
 
@@ -70,15 +70,19 @@ app.post("/api/create-account", async (req, res) => {
 app.post("/api/login", async (req, res) => {
   const { email, password } = req.body;
 
-  const connection = await pool.getConnection();
   try {
+    const connection = await pool.getConnection();
     const query = "SELECT * FROM users WHERE email = ?";
     const [results] = await connection.query(query, [email]);
+    connection.release(); // Release connection back to the pool
 
     if (results.length > 0) {
       const user = results[0];
+
+      // Compare the provided password with the hashed password
       const isMatch = await bcrypt.compare(password, user.password);
       if (isMatch) {
+        // Generate a JWT token and send it to the client
         const token = generateToken(user);
         res.status(200).json({ message: "Login successful", token });
       } else {
@@ -88,14 +92,12 @@ app.post("/api/login", async (req, res) => {
       res.status(401).json({ error: "Invalid credentials" });
     }
   } catch (error) {
-    res.status(500).json({ error: "Database error", details: error.message });
-  } finally {
-    connection.release(); // Release connection back to the pool
+    res.status(500).json({ error: "Error logging in", details: error.message });
   }
 });
 
 // API route to save matrix data
-app.post("/api/save-matrix", authenticateToken, (req, res) => {
+app.post("/api/save-matrix", authenticateToken, async (req, res) => {
   const { matrixId, matrixData } = req.body;
   const userId = req.user.userId; // Extract userId from the token
 
@@ -103,102 +105,77 @@ app.post("/api/save-matrix", authenticateToken, (req, res) => {
     return res.status(400).json({ error: "Invalid input data" });
   }
 
-  getConnection((err, connection) => {
-    if (err) {
-      return res.status(500).json({ error: "Database error" });
-    }
+  try {
+    const connection = await pool.getConnection();
 
     // Generate new matrixId if not provided
-    const generateNewMatrixId = (callback) => {
-      const query =
-        "SELECT MAX(matrix_id) AS maxMatrixId FROM matrix_data WHERE user_id = ?";
-      connection.query(query, [userId], (err, results) => {
-        if (err) {
-          callback(err, null);
-        } else {
-          const lastMatrixId = results[0].maxMatrixId || 0; // If null, start with 0
-          const newMatrixId = lastMatrixId + 1;
-          callback(null, newMatrixId);
-        }
-      });
-    };
+    const [matrixIdResults] = await connection.query(
+      "SELECT MAX(matrix_id) AS maxMatrixId FROM matrix_data WHERE user_id = ?",
+      [userId]
+    );
+    const lastMatrixId = matrixIdResults[0].maxMatrixId || 0; // If null, start with 0
+    const newMatrixId = matrixId || lastMatrixId + 1;
 
-    const insertMatrixData = (matrixIdToUse) => {
-      const values = matrixData.map((row) => [
-        userId,
-        matrixIdToUse,
-        row.columnName,
-        row.transformation,
-      ]);
+    const values = matrixData.map((row) => [
+      userId,
+      newMatrixId,
+      row.columnName,
+      row.transformation,
+    ]);
 
-      const query = `
-        INSERT INTO matrix_data (user_id, matrix_id, column_name, transformation)
-        VALUES ?
-      `;
-
-      connection.query(query, [values], (err, result) => {
-        connection.release();
-        if (err) {
-          return res
-            .status(500)
-            .json({ error: "Database error", details: err.message });
-        }
-
-        res.status(201).json({
-          message: "Matrix data saved successfully",
-          matrixId: matrixIdToUse,
-        });
-      });
-    };
-
-    if (matrixId) {
-      insertMatrixData(matrixId);
-    } else {
-      generateNewMatrixId((err, newMatrixId) => {
-        if (err) {
-          connection.release();
-          return res.status(500).json({
-            error: "Error generating new matrixId",
-            details: err.message,
-          });
-        }
-        insertMatrixData(newMatrixId);
-      });
-    }
-  });
-});
-// Endpoint to load available matrices
-app.get("/api/get-matrix-list", authenticateToken, async (req, res) => {
-  const userId = req.user.userId; // Extract userId from the token
-
-  const connection = await pool.getConnection();
-  try {
-    const query =
-      "SELECT DISTINCT matrix_id FROM matrix_data WHERE user_id = ?";
-    const [results] = await connection.query(query, [userId]);
-    res.status(200).json(results);
-  } catch (error) {
-    res.status(500).json({ error: "Database error", details: error.message });
-  } finally {
+    const query = `
+      INSERT INTO matrix_data (user_id, matrix_id, column_name, transformation)
+      VALUES ?
+    `;
+    await connection.query(query, [values]);
     connection.release(); // Release connection back to the pool
+
+    res.status(201).json({
+      message: "Matrix data saved successfully",
+      matrixId: newMatrixId,
+    });
+  } catch (error) {
+    res
+      .status(500)
+      .json({ error: "Error saving matrix data", details: error.message });
   }
 });
 
-// Endpoint to get matrix data
+// Endpoint to load available matrices
+app.get("/api/get-matrix-list", authenticateToken, async (req, res) => {
+  const userId = req.user.userId;
+
+  try {
+    const connection = await pool.getConnection();
+    const query =
+      "SELECT DISTINCT matrix_id FROM matrix_data WHERE user_id = ?";
+    const [results] = await connection.query(query, [userId]);
+    connection.release(); // Release connection back to the pool
+
+    res.status(200).json(results);
+  } catch (error) {
+    res
+      .status(500)
+      .json({ error: "Error fetching matrix list", details: error.message });
+  }
+});
+
 app.get("/api/get-matrix/:matrixId", authenticateToken, async (req, res) => {
   const { matrixId } = req.params;
-  const userId = req.user.userId; // Extract userId from the token
+  const userId = req.user.userId;
 
-  const connection = await pool.getConnection();
   try {
+    const connection = await pool.getConnection();
     const query =
       "SELECT column_name, transformation FROM matrix_data WHERE matrix_id = ? AND user_id = ?";
-    const [rows] = await connection.query(query, [matrixId, userId]);
-    res.json(rows);
-  } catch (error) {
-    res.status(500).json({ error: "Database error", details: error.message });
-  } finally {
+    const [results] = await connection.query(query, [matrixId, userId]);
     connection.release(); // Release connection back to the pool
+
+    res.json(results);
+  } catch (error) {
+    res
+      .status(500)
+      .json({ error: "Error fetching matrix data", details: error.message });
   }
 });
 
