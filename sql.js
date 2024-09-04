@@ -95,7 +95,7 @@ app.post("/api/login", async (req, res) => {
 });
 
 // API route to save matrix data
-app.post("/api/save-matrix", authenticateToken, async (req, res) => {
+app.post("/api/save-matrix", authenticateToken, (req, res) => {
   const { matrixId, matrixData } = req.body;
   const userId = req.user.userId; // Extract userId from the token
 
@@ -103,20 +103,27 @@ app.post("/api/save-matrix", authenticateToken, async (req, res) => {
     return res.status(400).json({ error: "Invalid input data" });
   }
 
-  const connection = await pool.getConnection();
+  getConnection((err, connection) => {
+    if (err) {
+      return res.status(500).json({ error: "Database error" });
+    }
 
-  try {
-    // Function to generate a new matrixId if not provided
-    const generateNewMatrixId = async () => {
-      const [rows] = await connection.query(
-        "SELECT MAX(matrix_id) AS maxMatrixId FROM matrix_data WHERE user_id = ?",
-        [userId]
-      );
-      const lastMatrixId = rows[0].maxMatrixId || 0; // If null, start with 0
-      return lastMatrixId + 1;
+    // Generate new matrixId if not provided
+    const generateNewMatrixId = (callback) => {
+      const query =
+        "SELECT MAX(matrix_id) AS maxMatrixId FROM matrix_data WHERE user_id = ?";
+      connection.query(query, [userId], (err, results) => {
+        if (err) {
+          callback(err, null);
+        } else {
+          const lastMatrixId = results[0].maxMatrixId || 0; // If null, start with 0
+          const newMatrixId = lastMatrixId + 1;
+          callback(null, newMatrixId);
+        }
+      });
     };
 
-    const insertMatrixData = async (matrixIdToUse) => {
+    const insertMatrixData = (matrixIdToUse) => {
       const values = matrixData.map((row) => [
         userId,
         matrixIdToUse,
@@ -124,30 +131,41 @@ app.post("/api/save-matrix", authenticateToken, async (req, res) => {
         row.transformation,
       ]);
 
-      await connection.query(
-        "INSERT INTO matrix_data (user_id, matrix_id, column_name, transformation) VALUES ?",
-        [values]
-      );
+      const query = `
+        INSERT INTO matrix_data (user_id, matrix_id, column_name, transformation)
+        VALUES ?
+      `;
+
+      connection.query(query, [values], (err, result) => {
+        connection.release();
+        if (err) {
+          return res
+            .status(500)
+            .json({ error: "Database error", details: err.message });
+        }
+
+        res.status(201).json({
+          message: "Matrix data saved successfully",
+          matrixId: matrixIdToUse,
+        });
+      });
     };
 
     if (matrixId) {
-      await insertMatrixData(matrixId);
+      insertMatrixData(matrixId);
     } else {
-      const newMatrixId = await generateNewMatrixId();
-      await insertMatrixData(newMatrixId);
-      matrixId = newMatrixId; // Update matrixId to the newly generated ID
+      generateNewMatrixId((err, newMatrixId) => {
+        if (err) {
+          connection.release();
+          return res.status(500).json({
+            error: "Error generating new matrixId",
+            details: err.message,
+          });
+        }
+        insertMatrixData(newMatrixId);
+      });
     }
-
-    res.status(201).json({
-      message: "Matrix data saved successfully",
-      matrixId,
-    });
-  } catch (error) {
-    console.error("Error saving matrix data:", error.message);
-    res.status(500).json({ error: "Database error", details: error.message });
-  } finally {
-    connection.release();
-  }
+  });
 });
 // Endpoint to load available matrices
 app.get("/api/get-matrix-list", authenticateToken, async (req, res) => {
